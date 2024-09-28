@@ -1,5 +1,7 @@
 import io
 import base64
+import cv2
+import numpy as np
 from vipas import model
 from vipas.exceptions import UnauthorizedException, NotFoundException, ConnectionException, ClientException
 from vipas.logger import LoggerClient
@@ -9,11 +11,17 @@ logger = LoggerClient(__name__)
 
 def pre_process(data):
     try:
-        # Preprocess the input image
+        # Decode the base64 image
         image = Image.open(io.BytesIO(base64.b64decode(data)))
-        image = image.resize((224, 224))  # Resize according to your model's requirement
+        # Convert the image to a format suitable for OpenCV
+        image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        # Resize according to your model's requirement
+        image_resized = cv2.resize(image, (224, 224))
+        # Convert back to PIL Image for further processing
+        pil_image = Image.fromarray(cv2.cvtColor(image_resized, cv2.COLOR_BGR2RGB))
+        
         buffered = io.BytesIO()
-        image.save(buffered, format="JPEG")
+        pil_image.save(buffered, format="JPEG")
         preprocessed_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
         logger.info("Preprocessing completed successfully.")
         return preprocessed_data
@@ -41,13 +49,36 @@ def post_process(output, threshold=0.5):
         raise
 
 def predict_image(input_data):
-    model_id = "mdl-egd1sfadhctl3"
+    model_id = "mdl-egd1sfadhctl3"  # Replace with your actual model ID
     vps_model_client = model.ModelClient()
-    response = vps_model_client.predict(model_id=model_id, input_data=input_data)
     
-    # Convert the response into an output image
-    if response.get("output_image"):
-        output_image_data = base64.b64decode(response["output_image"])
-        return Image.open(io.BytesIO(output_image_data))
+    try:
+        response = vps_model_client.predict(model_id=model_id, input_data=input_data)
+        return response  # Return the raw response to process it later
+    except UnauthorizedException as e:
+        logger.error("Unauthorized exception: " + str(e))
+        raise
+    except NotFoundException as e:
+        logger.error("Not found exception: " + str(e))
+        raise
+    except ConnectionException as e:
+        logger.error("Connection exception: " + str(e))
+        raise
+    except ClientException as e:
+        logger.error("Client exception: " + str(e))
+        raise
+    except Exception as e:
+        logger.error("Exception when calling model->predict: %s\n" % e)
+        raise
+
+def process_image(data, threshold=0.5):
+    # Preprocess the image
+    preprocessed_data = pre_process(data)
     
-    return None
+    # Get predictions
+    response = predict_image(preprocessed_data)
+    
+    # Post-process the predictions
+    results = post_process(response, threshold)
+    
+    return results
