@@ -41,7 +41,7 @@ def post_process(output, threshold=0.5):
         raise
 
 def predict_image(input_data):
-    model_id = "mdl-972r3z1gxmj53"
+    model_id = "mdl-egd1sfadhctl3"
     vps_model_client = model.ModelClient()
     response = vps_model_client.predict(model_id=model_id, input_data=input_data)
     
