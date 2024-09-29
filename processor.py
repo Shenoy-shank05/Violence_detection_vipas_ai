@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from io import BytesIO
-from PIL import Image  # Ensure this import is included
+from PIL import Image
 import base64
 
 def pre_process(input_image_base64):
@@ -19,8 +19,13 @@ def pre_process(input_image_base64):
     
     # Add a batch dimension for model input
     image_np = np.expand_dims(image_np, axis=0)  # Shape (1, 224, 224, 3)
-    
-    return image_np.tolist(), original_image  # Convert to list for JSON serialization
+
+    # Convert original image to base64 string
+    buffered = BytesIO()
+    original_image.save(buffered, format="PNG")  # Save as PNG or any other format
+    original_image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+    return image_np.tolist(), original_image_base64  # Convert to list for JSON serialization
 
 def post_process(predictions):
     boxes = predictions['detection_boxes'].numpy()
