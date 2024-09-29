@@ -1,84 +1,39 @@
-import io
-import base64
-import cv2
 import numpy as np
-from vipas import model
-from vipas.exceptions import UnauthorizedException, NotFoundException, ConnectionException, ClientException
-from vipas.logger import LoggerClient
-from PIL import Image
+import tensorflow as tf
+from io import BytesIO
+import base64
 
-logger = LoggerClient(__name__)
+def pre_process(input_image_base64):
+    # Decode the base64 image input
+    image_data = base64.b64decode(input_image_base64)
+    # Open the image and convert to RGB
+    original_image = Image.open(BytesIO(image_data)).convert('RGB')
+    # Resize the image to match model input size
+    image = original_image.resize((224, 224))
+    # Convert the image to a numpy array and normalize it
+    image_np = np.array(image) / 255.0  # Normalization to [0, 1]
+    return image_np, original_image
 
-def pre_process(data):
-    try:
-        # Decode the base64 image
-        image = Image.open(io.BytesIO(base64.b64decode(data)))
-        # Convert the image to a format suitable for OpenCV
-        image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        # Resize according to your model's requirement
-        image_resized = cv2.resize(image, (224, 224))
-        # Convert back to PIL Image for further processing
-        pil_image = Image.fromarray(cv2.cvtColor(image_resized, cv2.COLOR_BGR2RGB))
-        
-        buffered = io.BytesIO()
-        pil_image.save(buffered, format="JPEG")
-        preprocessed_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        logger.info("Preprocessing completed successfully.")
-        return preprocessed_data
-    except Exception as err:
-        logger.critical(f"Error in preprocessing: {str(err)}")
-        raise
+def post_process(predictions):
+    boxes = predictions['detection_boxes'].numpy()
+    scores = predictions['detection_scores'].numpy()
+    classes = predictions['detection_classes'].numpy()
+    num_detections = int(predictions['num_detections'].numpy())
 
-def post_process(output, threshold=0.5):
-    try:
-        # Process the model's output
-        results = output.get('predictions', [])
-        classes = ['Non-Violence', 'Violence']
-        processed_output = {}
-        
-        for index, result in enumerate(results):
-            if index < len(classes):
-                confidence = result['confidence']
-                if confidence >= threshold:  # Apply threshold
-                    processed_output[classes[index]] = confidence
+    filtered_boxes = []
+    filtered_scores = []
+    filtered_classes = []
 
-        logger.info("Postprocessing completed successfully.")
-        return processed_output
-    except Exception as err:
-        logger.critical(f"Error in postprocessing: {str(err)}")
-        raise
+    for i in range(num_detections):
+        if scores[i] > 0.5:  # Threshold for confidence
+            filtered_boxes.append(boxes[i])
+            filtered_scores.append(scores[i])
+            filtered_classes.append(classes[i])
 
-def predict_image(input_data):
-    model_id = "mdl-egd1sfadhctl3"  # Replace with your actual model ID
-    vps_model_client = model.ModelClient()
-    
-    try:
-        response = vps_model_client.predict(model_id=model_id, input_data=input_data)
-        return response  # Return the raw response to process it later
-    except UnauthorizedException as e:
-        logger.error("Unauthorized exception: " + str(e))
-        raise
-    except NotFoundException as e:
-        logger.error("Not found exception: " + str(e))
-        raise
-    except ConnectionException as e:
-        logger.error("Connection exception: " + str(e))
-        raise
-    except ClientException as e:
-        logger.error("Client exception: " + str(e))
-        raise
-    except Exception as e:
-        logger.error("Exception when calling model->predict: %s\n" % e)
-        raise
-
-def process_image(data, threshold=0.5):
-    # Preprocess the image
-    preprocessed_data = pre_process(data)
-    
-    # Get predictions
-    response = predict_image(preprocessed_data)
-    
-    # Post-process the predictions
-    results = post_process(response, threshold)
-    
-    return results
+    filtered_predictions = {
+        'detection_boxes': filtered_boxes,
+        'detection_scores': filtered_scores,
+        'detection_classes': filtered_classes,
+        'num_detections': len(filtered_scores)
+    }
+    return filtered_predictions
