@@ -3,40 +3,63 @@ import tensorflow as tf
 from io import BytesIO
 from PIL import Image
 import base64
+import cv2
 
-def pre_process(input_image_base64):
+def pre_process(input_video_base64):
     """
-    Preprocess the input image for the model.
+    Preprocess the input video for the model.
     
     Parameters:
-        input_image_base64 (str): Base64 encoded input image.
+        input_video_base64 (str): Base64 encoded input video.
         
     Returns:
-        tuple: A tuple containing:
-            - List: Preprocessed image array ready for model input.
-            - str: Base64 encoded original image.
+        list: A list of preprocessed image arrays ready for model input.
+        str: Base64 encoded original video.
     """
-    # Decode the base64 image input
-    image_data = base64.b64decode(input_image_base64)
+    # Decode the base64 video input
+    video_data = base64.b64decode(input_video_base64)
     
-    # Open the image and convert to RGB
-    original_image = Image.open(BytesIO(image_data)).convert('RGB')
-    
-    # Resize the image to match model input size (128x128)
-    image = original_image.resize((128, 128))
-    
-    # Convert the image to a numpy array and normalize it to [0, 1]
-    image_np = np.array(image) / 255.0
-    
-    # Add a batch dimension for model input (shape: (1, 128, 128, 3))
-    image_np = np.expand_dims(image_np, axis=0)
+    # Save the video to a temporary file
+    video_file_path = '/tmp/input_video.mp4'
+    with open(video_file_path, 'wb') as f:
+        f.write(video_data)
 
-    # Convert the original image to a base64 string for output
+    # Initialize video capture
+    vidcap = cv2.VideoCapture(video_file_path)
+
+    processed_frames = []
+    original_frames = []
+
+    while True:
+        success, frame = vidcap.read()
+        if not success:
+            break
+        
+        # Resize the frame to match model input size (128x128)
+        resized_frame = cv2.resize(frame, (128, 128))
+        
+        # Convert the frame to a numpy array and normalize it to [0, 1]
+        frame_np = resized_frame.astype(np.float32) / 255.0
+        
+        # Add a batch dimension for model input (shape: (1, 128, 128, 3))
+        frame_np = np.expand_dims(frame_np, axis=0)
+
+        # Store processed frame
+        processed_frames.append(frame_np.tolist())
+
+        # Store the original frame for later encoding (for video output)
+        original_frames.append(frame)
+
+    vidcap.release()
+
+    # Convert original frames to base64 string for output
     buffered = BytesIO()
-    original_image.save(buffered, format="PNG")  # Save as PNG
-    original_image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+    for frame in original_frames:
+        img = Image.fromarray(frame)
+        img.save(buffered, format="PNG")  # Save as PNG
+    original_video_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-    return image_np.tolist(), original_image_base64  # Convert to list for JSON serialization
+    return processed_frames, original_video_base64  # Convert to list for JSON serialization
 
 
 def post_process(predictions):
@@ -75,3 +98,8 @@ def post_process(predictions):
     }
     
     return filtered_predictions
+
+# Example usage:
+# processed_frames, original_video_base64 = pre_process(base64_input_video)
+# predictions = model.predict(processed_frames)
+# results = post_process(predictions)
