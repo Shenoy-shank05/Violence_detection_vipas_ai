@@ -1,9 +1,8 @@
 import numpy as np
 import tensorflow as tf
 from io import BytesIO
-from PIL import Image
-import base64
 import cv2
+import base64
 
 def pre_process(input_video_base64):
     """
@@ -13,53 +12,54 @@ def pre_process(input_video_base64):
         input_video_base64 (str): Base64 encoded input video.
         
     Returns:
-        list: A list of preprocessed image arrays ready for model input.
-        str: Base64 encoded original video.
+        tuple: A tuple containing:
+            - List: Preprocessed frames ready for model input.
+            - str: Base64 encoded original video.
     """
     # Decode the base64 video input
     video_data = base64.b64decode(input_video_base64)
-    
-    # Save the video to a temporary file
-    video_file_path = '/tmp/input_video.mp4'
-    with open(video_file_path, 'wb') as f:
-        f.write(video_data)
+
+    # Write the video data to a temporary file
+    temp_video_path = '/tmp/temp_video.mp4'
+    with open(temp_video_path, 'wb') as temp_video_file:
+        temp_video_file.write(video_data)
 
     # Initialize video capture
-    vidcap = cv2.VideoCapture(video_file_path)
+    cap = cv2.VideoCapture(temp_video_path)
 
-    processed_frames = []
+    frames = []
     original_frames = []
-
-    while True:
-        success, frame = vidcap.read()
-        if not success:
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
             break
         
-        # Resize the frame to match model input size (128x128)
-        resized_frame = cv2.resize(frame, (128, 128))
-        
-        # Convert the frame to a numpy array and normalize it to [0, 1]
-        frame_np = resized_frame.astype(np.float32) / 255.0
-        
-        # Add a batch dimension for model input (shape: (1, 128, 128, 3))
-        frame_np = np.expand_dims(frame_np, axis=0)
+        # Resize frame to match model input size (128x128)
+        frame_resized = cv2.resize(frame, (128, 128))  # Adjusted size
+        frame_normalized = frame_resized / 255.0  # Normalize to [0, 1]
 
-        # Store processed frame
-        processed_frames.append(frame_np.tolist())
+        # Append the processed frame
+        frames.append(frame_normalized)
+        original_frames.append(frame)  # Keep original frames for output
 
-        # Store the original frame for later encoding (for video output)
-        original_frames.append(frame)
-
-    vidcap.release()
-
+    cap.release()
+    
+    # Convert processed frames to numpy array
+    frames_np = np.array(frames)
+    
     # Convert original frames to base64 string for output
-    buffered = BytesIO()
+    original_video_buffer = BytesIO()
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(original_video_buffer, fourcc, 30, (original_frames[0].shape[1], original_frames[0].shape[0]))
+    
     for frame in original_frames:
-        img = Image.fromarray(frame)
-        img.save(buffered, format="PNG")  # Save as PNG
-    original_video_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        out.write(frame)
+    out.release()
 
-    return processed_frames, original_video_base64  # Convert to list for JSON serialization
+    original_video_base64 = base64.b64encode(original_video_buffer.getvalue()).decode('utf-8')
+
+    return frames_np.tolist(), original_video_base64  # Convert to list for JSON serialization
 
 
 def post_process(predictions):
@@ -98,8 +98,3 @@ def post_process(predictions):
     }
     
     return filtered_predictions
-
-# Example usage:
-# processed_frames, original_video_base64 = pre_process(base64_input_video)
-# predictions = model.predict(processed_frames)
-# results = post_process(predictions)
