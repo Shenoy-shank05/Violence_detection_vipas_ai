@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from io import BytesIO
-from PIL import Image  # Import the Image module from PIL
+from PIL import Image  # Make sure to import Image from PIL
 import base64
 
 def pre_process(input_image_base64):
@@ -16,9 +16,10 @@ def pre_process(input_image_base64):
     return image_np, original_image
 
 def post_process(predictions):
-    boxes = predictions['detection_boxes'].numpy()
-    scores = predictions['detection_scores'].numpy()
-    classes = predictions['detection_classes'].numpy()
+    # Convert tensors to numpy arrays and then to lists
+    boxes = predictions['detection_boxes'].numpy().tolist()
+    scores = predictions['detection_scores'].numpy().tolist()
+    classes = predictions['detection_classes'].numpy().tolist()
     num_detections = int(predictions['num_detections'].numpy())
 
     filtered_boxes = []
