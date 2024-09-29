@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from io import BytesIO
+from PIL import Image  # Import the Image module from PIL
 import base64
 
 def pre_process(input_image_base64):
